@@ -12,6 +12,9 @@ type
     disabled*: bool
     width*: int
     height*: int
+    align*: string
+    hexpand*: bool
+    vexpand*: bool
     parent*: Widget
     children*: seq[Widget]
 
@@ -21,6 +24,9 @@ type
     disabled: bool
     width: int
     height: int
+    align: string
+    hexpand: bool
+    vexpand: bool
 
 proc widgetDefaults(identifier: string): WidgetDefaults =
   ## Get default attributes for a specified widget.
@@ -29,13 +35,16 @@ proc widgetDefaults(identifier: string): WidgetDefaults =
       result = WidgetDefaults(
         disabled: false,
         width: 72,
-        height: 32
+        height: 32,
       )
     else:
       result = WidgetDefaults(
         disabled: false,
         width: 0,
-        height: 0
+        height: 0,
+        align: "auto",
+        hexpand: false,
+        vexpand: false
       )
 
 proc createWidget*(
@@ -44,6 +53,9 @@ proc createWidget*(
     name: string = "";
     width: Option[int] = none(int);
     height: Option[int] = none(int);
+    align: string = "auto";
+    hexpand: bool = false;
+    vexpand: bool = false;
     disabled: Option[bool] = none(bool)
   ): Widget =
   ## Creates a widget based on specific identifier.
@@ -53,6 +65,9 @@ proc createWidget*(
   result.identifier = identifier
   result.parent = parent
   result.name = name
+  result.align = align
+  result.hexpand = hexpand
+  result.vexpand = vexpand
   result.children = @[]
 
   let defaults = widgetDefaults(identifier)
