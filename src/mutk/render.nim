@@ -24,7 +24,7 @@ proc start*(root: Widget): int =
     window: WindowPtr
     renderer: RendererPtr
 
-  window = createWindow("SDL Skeleton", 100, 100, 640, 480, SDL_WINDOW_SHOWN)
+  window = createWindow("MUTK Window", 100, 100, 640, 480, SDL_WINDOW_SHOWN)
   renderer = createRenderer(
     window,
     -1,
