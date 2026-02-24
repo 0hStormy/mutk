@@ -1,2 +1,3 @@
-import mutk/widget
-export widget
+import mutk/render, mutk/widget
+
+export render, widget
