@@ -1,5 +1,40 @@
 import widget
 
+proc measure*(widget: Widget) =
+  if widget.children.len == 0:
+    return
+
+  for child in widget.children:
+    measure(child)
+
+  let isVertical = widget.direction == Vertical
+
+  if isVertical:
+    var totalHeight = 0
+    var maxWidth = 0
+
+    for child in widget.children:
+      totalHeight += child.height
+      maxWidth = max(maxWidth, child.width)
+
+    if not widget.vexpand:
+      widget.height = totalHeight
+    if not widget.hexpand:
+      widget.width = maxWidth
+
+  else:
+    var totalWidth = 0
+    var maxHeight = 0
+
+    for child in widget.children:
+      totalWidth += child.width
+      maxHeight = max(maxHeight, child.height)
+
+    if not widget.hexpand:
+      widget.width = totalWidth
+    if not widget.vexpand:
+      widget.height = maxHeight
+
 proc layoutWidgets*(widget: Widget) =
   ## Lay out widgets according to given tree
 

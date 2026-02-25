@@ -36,6 +36,7 @@ proc start*(root: Widget): int =
     evt = sdl2.defaultEvent
     runGame = true
 
+  measure(root)
   layoutWidgets(root)
 
   while runGame:
