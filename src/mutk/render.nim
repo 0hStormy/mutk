@@ -1,5 +1,6 @@
 import sdl2
 import mutk/widget
+import mutk/layout
 
 proc renderWidgets(renderer: RendererPtr, widget: Widget, level: int = 0): void =
   if widget.isNil: return
@@ -7,8 +8,8 @@ proc renderWidgets(renderer: RendererPtr, widget: Widget, level: int = 0): void 
   renderer.setDrawColor(255, 0, 0, 255)
 
   var rect: Rect
-  rect.x = 0
-  rect.y = 0
+  rect.x = int32(widget.x)
+  rect.y = int32(widget.y)
   rect.w = int32(widget.width)
   rect.h = int32(widget.height)
   renderer.drawRect(rect)
@@ -34,6 +35,8 @@ proc start*(root: Widget): int =
   var
     evt = sdl2.defaultEvent
     runGame = true
+
+  layoutWidgets(root)
 
   while runGame:
     while pollEvent(evt):
