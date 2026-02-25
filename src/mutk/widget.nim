@@ -2,10 +2,12 @@ import std/options
 
 type
   Direction* = enum
+    ## Layout direction for widget's children
     Horizontal, Vertical
 
 type
   Alignment* = enum
+    ## Alignment options for widget's children
     AlignLeft,
     AlignRight,
     AlignTop,
@@ -88,7 +90,7 @@ proc createWidget*(
     direction: Direction = Vertical;
     disabled: Option[bool] = none(bool)
   ): Widget =
-  ## Creates a widget and automatically applies defaults if no value was passed
+  ## Creates a widget and automatically applies defaults if no value was passed.
   result = Widget()
   result.identifier = identifier
   result.parent = parent
@@ -122,3 +124,27 @@ proc createRoot*(): Widget =
     hexpand = some(true),
     vexpand = some(true)
   )
+
+proc containsPoint*(widget: Widget, px: int, py: int): bool =
+  ## Checks if a widget contains a point.
+  if widget.isNil:
+    return false
+
+  result =
+    px >= widget.x and
+    py >= widget.y and
+    px < widget.x + widget.width and
+    py < widget.y + widget.height
+
+proc findWidgetAt*(widget: Widget, px: int, py: int): Widget =
+  ## Finds widget at specified point, 
+  ## returns nil if no widget is found.
+  if widget.isNil or not containsPoint(widget, px, py):
+    return nil
+
+  for i in countdown(widget.children.high, 0):
+    let found = findWidgetAt(widget.children[i], px, py)
+    if not found.isNil:
+      return found
+
+  return widget
