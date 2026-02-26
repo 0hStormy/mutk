@@ -36,6 +36,7 @@ type
     hexpand*: bool
     vexpand*: bool
     direction*: Direction
+    onclick*: proc (widget: Widget) {.nimcall.}
     parent*: Widget
     children*: seq[Widget]
 
@@ -88,6 +89,7 @@ proc createWidget*(
     hexpand: Option[bool] = none(bool);
     vexpand: Option[bool] = none(bool);
     direction: Direction = Vertical;
+    onclick: proc (widget: Widget) {.nimcall.} = nil;
     disabled: Option[bool] = none(bool)
   ): Widget =
   ## Creates a widget and automatically applies defaults if no value was passed.
@@ -111,6 +113,7 @@ proc createWidget*(
   result.hexpand = if hexpand.isSome: hexpand.get() else: defaults.hexpand
   result.vexpand = if vexpand.isSome: vexpand.get() else: defaults.vexpand
   result.disabled = if disabled.isSome: disabled.get() else: defaults.disabled
+  result.onclick = onclick
 
   if parent != nil:
     parent.children.add(result)

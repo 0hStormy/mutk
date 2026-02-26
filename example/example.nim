@@ -1,6 +1,9 @@
 import std/options
 import mutk
 
+proc printHello(widget: Widget) =
+  echo "Hello, world!"
+
 let root = mutk.createRoot()
 root.direction = Horizontal
 
@@ -38,6 +41,7 @@ discard mutk.createWidget(
   parent = content,
   align = AlignCenter,
   identifier = "button",
+  onclick = printHello
 )
 
 discard mutk.start(root)

@@ -55,7 +55,8 @@ proc start*(root: Widget): int =
         hoveredWidget = findWidgetAt(root, x, y)
       elif event.kind == MouseButtonDown:
         let clickedWidget = hoveredWidget
-        echo "Clicked widget: ", clickedWidget.identifier
+        if not clickedWidget.isNil and clickedWidget.onclick != nil:
+          clickedWidget.onclick(clickedWidget)
 
     renderer.setDrawColor 0,0,0,255
     renderer.clear
