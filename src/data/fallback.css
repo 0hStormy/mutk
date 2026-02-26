@@ -1,0 +1,20 @@
+root {
+    background-color: #eff0f1;
+}
+
+button {
+    background-color: #fcfcfc;
+    border: solid 1px #d1d2d3;
+    box-shadow: 0px 1px #d1d2d3;
+    border-radius: 6px;
+}
+
+button:hover {
+    border-color: #3daee9;
+    background-color: #fcfcfc;
+}
+
+button:active {
+    border-color: #3daee9;
+    background-color: #badcee;
+}
