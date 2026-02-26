@@ -6,17 +6,40 @@ import render
 
 const styleAST = generateAST(staticRead("data/fallback.css"))
 
-proc recreateTexture(renderer: RendererPtr, texture: var TexturePtr, w, h: int): void =
-  if not texture.isNil:
-    destroy texture
+type
+  TextureCacheEntry = object
+    w: int
+    h: int
+    texture: TexturePtr
 
-  texture = createTexture(
+proc getOrCreateTexture(
+  renderer: RendererPtr,
+  cache: var seq[TextureCacheEntry],
+  w, h: int
+): TexturePtr =
+  let targetW = max(1, w)
+  let targetH = max(1, h)
+
+  for entry in cache:
+    if entry.w == targetW and entry.h == targetH and not entry.texture.isNil:
+      return entry.texture
+
+  let texture = createTexture(
     renderer,
     SDL_PIXELFORMAT_ARGB8888,
     cint(SDL_TEXTUREACCESS_STREAMING),
-    cint(max(1, w)),
-    cint(max(1, h))
+    cint(targetW),
+    cint(targetH)
   )
+
+  cache.add(TextureCacheEntry(w: targetW, h: targetH, texture: texture))
+  return texture
+
+proc destroyTextureCache(cache: var seq[TextureCacheEntry]): void =
+  for entry in cache:
+    if not entry.texture.isNil:
+      destroy entry.texture
+  cache.setLen(0)
 
 proc renderWidgets(canvas: var Canvas, widget: Widget, style: seq[CSSNode]): void =
   if widget.isNil:
@@ -27,6 +50,12 @@ proc renderWidgets(canvas: var Canvas, widget: Widget, style: seq[CSSNode]): voi
   for child in widget.children:
     renderWidgets(canvas, child, style)
 
+proc limitFrameRate(targetFramePeriod: uint32, frameTime: uint32): uint32 =
+  let now = getTicks()
+  if frameTime > now:
+    delay(frameTime - now) # Delay to maintain steady frame rate
+  return frameTime + targetFramePeriod
+
 proc start*(root: Widget): int =
   discard sdl2.init(INIT_EVERYTHING)
 
@@ -34,6 +63,7 @@ proc start*(root: Widget): int =
     window: WindowPtr
     renderer: RendererPtr
     frameTexture: TexturePtr
+    textureCache: seq[TextureCacheEntry]
     canvas: Canvas
 
   window = createWindow(
@@ -50,7 +80,17 @@ proc start*(root: Widget): int =
   )
 
   canvas.resizeCanvas(640, 480)
-  recreateTexture(renderer, frameTexture, canvas.w, canvas.h)
+  frameTexture = getOrCreateTexture(renderer, textureCache, canvas.w, canvas.h)
+
+  var mode: DisplayMode
+
+  let frameRate = if mode.refresh_rate != 0:
+    mode.refresh_rate
+  else:
+    60
+
+  let targetFramePeriod: uint32 = uint32(1000 div frameRate)
+  var frameTime: uint32 = 0
 
   var
     event = sdl2.defaultEvent
@@ -80,7 +120,7 @@ proc start*(root: Widget): int =
         measure(root)
         layoutWidgets(root)
         canvas.resizeCanvas(root.width, root.height)
-        recreateTexture(renderer, frameTexture, canvas.w, canvas.h)
+        frameTexture = getOrCreateTexture(renderer, textureCache, canvas.w, canvas.h)
 
     canvas.clear(rgba(0, 0, 0, 255))
     renderWidgets(canvas, root, styleAST)
@@ -100,9 +140,9 @@ proc start*(root: Widget): int =
       discard renderer.copy(frameTexture, nil, nil)
 
     renderer.present
+    discard limitFrameRate(targetFramePeriod, frameTime)
 
-  if not frameTexture.isNil:
-    destroy frameTexture
+  destroyTextureCache(textureCache)
 
   destroy renderer
   destroy window
