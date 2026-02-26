@@ -1,23 +1,20 @@
-import sdl2
-import widget
-import layout
-import style
 import math
-import strutils
 
-const styleAST = generateAST(staticRead("data/fallback.css"))
-var hoveredWidget* = Widget()
-var activeWidget* = Widget()
+type Canvas* = object
+  w*: int
+  h*: int
+  pixels*: seq[uint32] # 0xAARRGGBB
 
-type Canvas = object
-  w, h: int
-  pixels: seq[uint32] # 0xAARRGGBB
+proc rgba*(r, g, b, a: uint8): uint32 =
+  (uint32(a) shl 24) or (uint32(r) shl 16) or (uint32(g) shl 8) or uint32(b)
 
-proc clear(c: var Canvas, col: uint32) =
-  for i in 0..<c.pixels.len: c.pixels[i] = col
+proc clear*(c: var Canvas, col: uint32) =
+  for i in 0..<c.pixels.len:
+    c.pixels[i] = col
 
-proc putPixel(c: var Canvas, x, y: int, col: uint32) =
-  if x < 0 or y < 0 or x >= c.w or y >= c.h: return
+proc putPixel*(c: var Canvas, x, y: int, col: uint32) =
+  if x < 0 or y < 0 or x >= c.w or y >= c.h:
+    return
   c.pixels[y * c.w + x] = col
 
 proc clamp01(value: float): float =
@@ -27,7 +24,7 @@ proc clamp01(value: float): float =
     return 1.0
   return value
 
-proc blendPixel(c: var Canvas, x, y: int, col: uint32, coverage: float = 1.0) =
+proc blendPixel*(c: var Canvas, x, y: int, col: uint32, coverage: float = 1.0) =
   if x < 0 or y < 0 or x >= c.w or y >= c.h:
     return
 
@@ -61,14 +58,16 @@ proc blendPixel(c: var Canvas, x, y: int, col: uint32, coverage: float = 1.0) =
     uint8(clamp01(outA) * 255.0)
   )
 
-proc fillRect(c: var Canvas, x, y, w, h: int, col: uint32) =
-  let x0 = max(0, x); let y0 = max(0, y)
-  let x1 = min(c.w, x + w); let y1 = min(c.h, y + h)
+proc fillRect*(c: var Canvas, x, y, w, h: int, col: uint32) =
+  let x0 = max(0, x)
+  let y0 = max(0, y)
+  let x1 = min(c.w, x + w)
+  let y1 = min(c.h, y + h)
   for yy in y0..<y1:
     for xx in x0..<x1:
       c.putPixel(xx, yy, col)
 
-proc insideRoundedRect(localX, localY, w, h, radius: int): bool =
+proc insideRoundedRect*(localX, localY, w, h, radius: int): bool =
   if radius <= 0:
     return true
 
@@ -88,7 +87,7 @@ proc insideRoundedRect(localX, localY, w, h, radius: int): bool =
 
   result = dx * dx + dy * dy <= r * r
 
-proc roundedRectCoverage(localX, localY, w, h, radius: int): float =
+proc roundedRectCoverage*(localX, localY, w, h, radius: int): float =
   if w <= 0 or h <= 0:
     return 0.0
 
@@ -115,7 +114,7 @@ proc roundedRectCoverage(localX, localY, w, h, radius: int): float =
 
   return clamp01(0.5 - signedDistance)
 
-proc fillRoundedRect(c: var Canvas, x, y, w, h, radius: int, col: uint32) =
+proc fillRoundedRect*(c: var Canvas, x, y, w, h, radius: int, col: uint32) =
   if w <= 0 or h <= 0:
     return
 
@@ -132,7 +131,7 @@ proc fillRoundedRect(c: var Canvas, x, y, w, h, radius: int, col: uint32) =
       if coverage > 0.0:
         c.blendPixel(xx, yy, col, coverage)
 
-proc drawRoundedBorder(c: var Canvas, x, y, w, h, radius, borderWidth: int, col: uint32) =
+proc drawRoundedBorder*(c: var Canvas, x, y, w, h, radius, borderWidth: int, col: uint32) =
   if w <= 0 or h <= 0:
     return
 
@@ -169,7 +168,7 @@ proc drawRoundedBorder(c: var Canvas, x, y, w, h, radius, borderWidth: int, col:
       if borderCoverage > 0.0:
         c.blendPixel(xx, yy, col, borderCoverage)
 
-proc linearGradient(c: var Canvas, x, y, w, h: int, col1, col2: uint32, radius: int = 0) =
+proc linearGradient*(c: var Canvas, x, y, w, h: int, col1, col2: uint32, radius: int = 0) =
   if w <= 0 or h <= 0:
     return
 
@@ -194,170 +193,7 @@ proc linearGradient(c: var Canvas, x, y, w, h: int, col1, col2: uint32, radius: 
         if insideRoundedRect(localX, i, w, h, radius):
           c.putPixel(xx, yy, rowColor)
 
-proc resizeCanvas(c: var Canvas, w, h: int): void =
+proc resizeCanvas*(c: var Canvas, w, h: int): void =
   c.w = max(1, w)
   c.h = max(1, h)
   c.pixels.setLen(c.w * c.h)
-
-proc recreateTexture(renderer: RendererPtr, texture: var TexturePtr, w, h: int): void =
-  if not texture.isNil:
-    destroy texture
-
-  texture = createTexture(
-    renderer,
-    SDL_PIXELFORMAT_ARGB8888,
-    cint(SDL_TEXTUREACCESS_STREAMING),
-    cint(max(1, w)),
-    cint(max(1, h))
-  )
-
-proc renderWidgets(canvas: var Canvas, widget: Widget, style: seq[CSSNode]): void =
-  if widget.isNil: return
-
-  let isHovered = hoveredWidget == widget
-  let isActive = activeWidget == widget
-  let baseSelector = widget.identifier
-  let hoverSelector = widget.identifier & ":hover"
-  let activeSelector = widget.identifier & ":active"
-
-  var borderRadius = 0
-  var hasBgColor = false
-  var bgColor = rgba(0, 0, 0, 0)
-  var hasGradient = false
-  var gradientStart = rgba(0, 0, 0, 0)
-  var gradientEnd = rgba(0, 0, 0, 0)
-  var borderWidth = 0
-  var borderColor = rgba(0, 0, 0, 255)
-  var shadow: seq[string] = @[]
-
-  for node in style:
-    if node.selector == baseSelector:
-      applyStyleNode(node, borderRadius, hasBgColor, bgColor, hasGradient, gradientStart, gradientEnd, borderWidth, borderColor, shadow)
-
-  if isHovered:
-    for node in style:
-      if node.selector == hoverSelector:
-        applyStyleNode(node, borderRadius, hasBgColor, bgColor, hasGradient, gradientStart, gradientEnd, borderWidth, borderColor, shadow)
-
-  if isActive:
-    for node in style:
-      if node.selector == activeSelector:
-        applyStyleNode(node, borderRadius, hasBgColor, bgColor, hasGradient, gradientStart, gradientEnd, borderWidth, borderColor, shadow)
-
-  if shadow.len >= 3:
-    var offsetX = shadow[0].strip()
-    var offsetY = shadow[1].strip()
-
-    if offsetX.endsWith("px"):
-      offsetX = offsetX[0 ..< offsetX.len - 2].strip()
-    if offsetY.endsWith("px"):
-      offsetY = offsetY[0 ..< offsetY.len - 2].strip()
-
-    if offsetX.len > 0 and offsetY.len > 0 and shadow[2].strip().startsWith("#"):
-      let (r, g, b, a) = hexToSDLColor(shadow[2].strip())
-      canvas.fillRoundedRect(
-        widget.x + offsetX.parseInt(),
-        widget.y + offsetY.parseInt(),
-        widget.width,
-        widget.height,
-        borderRadius,
-        rgba(r, g, b, a)
-      )
-
-  if hasBgColor:
-    if borderRadius > 0:
-      canvas.fillRoundedRect(widget.x, widget.y, widget.width, widget.height, borderRadius, bgColor)
-    else:
-      canvas.fillRect(widget.x, widget.y, widget.width, widget.height, bgColor)
-
-  if hasGradient:
-    canvas.linearGradient(widget.x, widget.y, widget.width, widget.height, gradientStart, gradientEnd, borderRadius)
-
-  if borderWidth > 0:
-    canvas.drawRoundedBorder(widget.x, widget.y, widget.width, widget.height, borderRadius, borderWidth, borderColor)
-
-  for child in widget.children:
-    renderWidgets(canvas, child, style)
-  return
-
-proc start*(root: Widget): int =
-  discard sdl2.init(INIT_EVERYTHING)
-
-  var
-    window: WindowPtr
-    renderer: RendererPtr
-    frameTexture: TexturePtr
-    canvas: Canvas
-
-  window = createWindow(
-    "MUTK Window",
-    100,100,
-    640, 480,
-    SDL_WINDOW_SHOWN or SDL_WINDOW_RESIZABLE
-  )
-
-  renderer = createRenderer(
-    window,
-    -1,
-    Renderer_Accelerated or Renderer_PresentVsync or Renderer_TargetTexture
-  )
-
-  canvas.resizeCanvas(640, 480)
-  recreateTexture(renderer, frameTexture, canvas.w, canvas.h)
-
-  var
-    event = sdl2.defaultEvent
-    running = true
-
-  measure(root)
-  layoutWidgets(root)
-
-  while running:
-    while pollEvent(event):
-      if event.kind == QuitEvent:
-        running = false
-        break
-      elif event.kind == MouseMotion:
-        let (x, y) = (event.motion.x, event.motion.y)
-        hoveredWidget = findWidgetAt(root, x, y)
-      elif event.kind == MouseButtonDown:
-        let clickedWidget = hoveredWidget
-        activeWidget = clickedWidget
-        if not clickedWidget.isNil and clickedWidget.onclick != nil:
-          clickedWidget.onclick(clickedWidget)
-      elif event.kind == MouseButtonUp:
-        activeWidget = nil
-      elif event.kind == WindowEvent and event.window.event == WindowEvent_Resized:
-        root.width = event.window.data1
-        root.height = event.window.data2
-        measure(root)
-        layoutWidgets(root)
-        canvas.resizeCanvas(root.width, root.height)
-        recreateTexture(renderer, frameTexture, canvas.w, canvas.h)
-
-    canvas.clear(rgba(0, 0, 0, 255))
-    renderWidgets(canvas, root, styleAST)
-
-    if not frameTexture.isNil and canvas.pixels.len > 0:
-      discard updateTexture(
-        frameTexture,
-        nil,
-        cast[pointer](unsafeAddr(canvas.pixels[0])),
-        cint(canvas.w * sizeof(uint32))
-      )
-
-    renderer.setDrawColor 0,0,0,255
-    renderer.clear
-
-    if not frameTexture.isNil:
-      discard renderer.copy(frameTexture, nil, nil)
-
-    renderer.present
-
-  if not frameTexture.isNil:
-    destroy frameTexture
-
-  destroy renderer
-  destroy window
-
-  return 0

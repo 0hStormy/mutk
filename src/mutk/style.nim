@@ -1,8 +1,10 @@
 import strutils
 import sequtils
+import render
+import widget
 
-proc rgba*(r,g,b,a: uint8): uint32 =
-  (uint32(a) shl 24) or (uint32(r) shl 16) or (uint32(g) shl 8) or uint32(b)
+var hoveredWidget*: Widget = nil
+var activeWidget*: Widget = nil
 
 type
   CSSNode* = object
@@ -150,3 +152,66 @@ proc applyStyleNode*(
         if offsets.len == 2:
           shadow = @[offsets[0], offsets[1], colorToken]
           break
+
+proc cssRender*(canvas: var Canvas, widget: Widget, style: seq[CSSNode]): void =
+  let isHovered = hoveredWidget == widget
+  let isActive = activeWidget == widget
+  let baseSelector = widget.identifier
+  let hoverSelector = widget.identifier & ":hover"
+  let activeSelector = widget.identifier & ":active"
+
+  var borderRadius = 0
+  var hasBgColor = false
+  var bgColor = rgba(0, 0, 0, 0)
+  var hasGradient = false
+  var gradientStart = rgba(0, 0, 0, 0)
+  var gradientEnd = rgba(0, 0, 0, 0)
+  var borderWidth = 0
+  var borderColor = rgba(0, 0, 0, 255)
+  var shadow: seq[string] = @[]
+
+  for node in style:
+    if node.selector == baseSelector:
+      applyStyleNode(node, borderRadius, hasBgColor, bgColor, hasGradient, gradientStart, gradientEnd, borderWidth, borderColor, shadow)
+
+  if isHovered:
+    for node in style:
+      if node.selector == hoverSelector:
+        applyStyleNode(node, borderRadius, hasBgColor, bgColor, hasGradient, gradientStart, gradientEnd, borderWidth, borderColor, shadow)
+
+  if isActive:
+    for node in style:
+      if node.selector == activeSelector:
+        applyStyleNode(node, borderRadius, hasBgColor, bgColor, hasGradient, gradientStart, gradientEnd, borderWidth, borderColor, shadow)
+
+  if shadow.len >= 3:
+    var offsetX = shadow[0].strip()
+    var offsetY = shadow[1].strip()
+
+    if offsetX.endsWith("px"):
+      offsetX = offsetX[0 ..< offsetX.len - 2].strip()
+    if offsetY.endsWith("px"):
+      offsetY = offsetY[0 ..< offsetY.len - 2].strip()
+
+    if offsetX.len > 0 and offsetY.len > 0 and shadow[2].strip().startsWith("#"):
+      let (r, g, b, a) = hexToSDLColor(shadow[2].strip())
+      canvas.fillRoundedRect(
+        widget.x + offsetX.parseInt(),
+        widget.y + offsetY.parseInt(),
+        widget.width,
+        widget.height,
+        borderRadius,
+        rgba(r, g, b, a)
+      )
+
+  if hasBgColor:
+    if borderRadius > 0:
+      canvas.fillRoundedRect(widget.x, widget.y, widget.width, widget.height, borderRadius, bgColor)
+    else:
+      canvas.fillRect(widget.x, widget.y, widget.width, widget.height, bgColor)
+
+  if hasGradient:
+    canvas.linearGradient(widget.x, widget.y, widget.width, widget.height, gradientStart, gradientEnd, borderRadius)
+
+  if borderWidth > 0:
+    canvas.drawRoundedBorder(widget.x, widget.y, widget.width, widget.height, borderRadius, borderWidth, borderColor)
