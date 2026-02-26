@@ -92,6 +92,8 @@ proc roundedRectCoverage*(localX, localY, w, h, radius: int): float =
     return 0.0
 
   if radius <= 0:
+    if localX < 0 or localY < 0 or localX >= w or localY >= h:
+      return 0.0
     return 1.0
 
   let cornerRadius = float(min(radius, min(w div 2, h div 2)))

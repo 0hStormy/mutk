@@ -18,3 +18,8 @@ button:active {
     border-color: #3daee9;
     background-color: #badcee;
 }
+
+frame {
+    background-color: #ffffff;
+    border: solid 1px #d1d2d3;
+}

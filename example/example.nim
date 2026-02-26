@@ -9,7 +9,7 @@ root.direction = Horizontal
 
 let sidebar = mutk.createWidget(
   parent = root,
-  identifier = "box",
+  identifier = "frame",
   direction = Vertical,
   vexpand = some(true),
   align=AlignTop
