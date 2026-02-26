@@ -31,7 +31,13 @@ proc start*(root: Widget): int =
     window: WindowPtr
     renderer: RendererPtr
 
-  window = createWindow("MUTK Window", 100, 100, 640, 480, SDL_WINDOW_SHOWN)
+  window = createWindow(
+    "MUTK Window",
+    100,100,
+    640, 480,
+    SDL_WINDOW_SHOWN or SDL_WINDOW_RESIZABLE
+  )
+
   renderer = createRenderer(
     window,
     -1,
@@ -40,15 +46,15 @@ proc start*(root: Widget): int =
 
   var
     event = sdl2.defaultEvent
-    runGame = true
+    running = true
 
   measure(root)
   layoutWidgets(root)
 
-  while runGame:
+  while running:
     while pollEvent(event):
       if event.kind == QuitEvent:
-        runGame = false
+        running = false
         break
       elif event.kind == MouseMotion:
         let (x, y) = (event.motion.x, event.motion.y)
@@ -57,6 +63,11 @@ proc start*(root: Widget): int =
         let clickedWidget = hoveredWidget
         if not clickedWidget.isNil and clickedWidget.onclick != nil:
           clickedWidget.onclick(clickedWidget)
+      elif event.kind == WindowEvent and event.window.event == WindowEvent_Resized:
+        root.width = event.window.data1
+        root.height = event.window.data2
+        measure(root)
+        layoutWidgets(root)
 
     renderer.setDrawColor 0,0,0,255
     renderer.clear
