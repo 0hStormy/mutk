@@ -50,11 +50,20 @@ proc renderWidgets(canvas: var Canvas, widget: Widget, style: seq[CSSNode]): voi
   for child in widget.children:
     renderWidgets(canvas, child, style)
 
-proc limitFrameRate(targetFramePeriod: uint32, frameTime: uint32): uint32 =
-  let now = getTicks()
-  if frameTime > now:
-    delay(frameTime - now) # Delay to maintain steady frame rate
-  return frameTime + targetFramePeriod
+proc getTargetFramePeriodMs(window: WindowPtr): uint32 =
+  var mode: DisplayMode
+  var refreshRate = 60
+
+  let displayIndex = getDisplayIndex(window)
+  if displayIndex >= 0 and getCurrentDisplayMode(displayIndex, mode) == SdlSuccess and mode.refresh_rate > 0:
+    refreshRate = int(mode.refresh_rate)
+  elif getDisplayMode(window, mode) == 0 and mode.refresh_rate > 0:
+    refreshRate = int(mode.refresh_rate)
+
+  if refreshRate <= 0:
+    refreshRate = 60
+
+  result = uint32(max(1, 1000 div refreshRate))
 
 proc start*(root: Widget): int =
   discard sdl2.init(INIT_EVERYTHING)
@@ -76,71 +85,87 @@ proc start*(root: Widget): int =
   renderer = createRenderer(
     window,
     -1,
-    Renderer_Accelerated or Renderer_PresentVsync or Renderer_TargetTexture
+    Renderer_Accelerated or Renderer_TargetTexture
   )
 
   canvas.resizeCanvas(640, 480)
   frameTexture = getOrCreateTexture(renderer, textureCache, canvas.w, canvas.h)
 
-  var mode: DisplayMode
-
-  let frameRate = if mode.refresh_rate != 0:
-    mode.refresh_rate
-  else:
-    60
-
-  let targetFramePeriod: uint32 = uint32(1000 div frameRate)
-  var frameTime: uint32 = 0
+  let targetFramePeriodMs = getTargetFramePeriodMs(window)
 
   var
     event = sdl2.defaultEvent
     running = true
+    needsRedraw = true
+    nextFrameTicks = getTicks()
 
   measure(root)
   layoutWidgets(root)
 
   while running:
-    while pollEvent(event):
-      if event.kind == QuitEvent:
-        running = false
-        break
-      elif event.kind == MouseMotion:
-        let (x, y) = (event.motion.x, event.motion.y)
-        hoveredWidget = findWidgetAt(root, x, y)
-      elif event.kind == MouseButtonDown:
-        let clickedWidget = hoveredWidget
-        activeWidget = clickedWidget
-        if not clickedWidget.isNil and clickedWidget.onclick != nil:
-          clickedWidget.onclick(clickedWidget)
-      elif event.kind == MouseButtonUp:
-        activeWidget = nil
-      elif event.kind == WindowEvent and event.window.event == WindowEvent_Resized:
-        root.width = event.window.data1
-        root.height = event.window.data2
-        measure(root)
-        layoutWidgets(root)
-        canvas.resizeCanvas(root.width, root.height)
-        frameTexture = getOrCreateTexture(renderer, textureCache, canvas.w, canvas.h)
+    let now = getTicks()
+    let waitTimeoutMs: cint =
+      if needsRedraw or now >= nextFrameTicks:
+        0.cint
+      else:
+        cint(nextFrameTicks - now)
 
-    canvas.clear(rgba(0, 0, 0, 255))
-    renderWidgets(canvas, root, styleAST)
+    if bool(waitEventTimeout(event, waitTimeoutMs)):
+      while true:
+        if event.kind == QuitEvent:
+          running = false
+          break
+        elif event.kind == MouseMotion:
+          let (x, y) = (event.motion.x, event.motion.y)
+          let previousHovered = hoveredWidget
+          hoveredWidget = findWidgetAt(root, x, y)
+          if hoveredWidget != previousHovered:
+            needsRedraw = true
+        elif event.kind == MouseButtonDown:
+          let clickedWidget = hoveredWidget
+          activeWidget = clickedWidget
+          needsRedraw = true
+          if not clickedWidget.isNil and clickedWidget.onclick != nil:
+            clickedWidget.onclick(clickedWidget)
+            needsRedraw = true
+        elif event.kind == MouseButtonUp:
+          activeWidget = nil
+          needsRedraw = true
 
-    if not frameTexture.isNil and canvas.pixels.len > 0:
-      discard updateTexture(
-        frameTexture,
-        nil,
-        cast[pointer](unsafeAddr(canvas.pixels[0])),
-        cint(canvas.w * sizeof(uint32))
-      )
+        if event.kind == WindowEvent and event.window.event == WindowEvent_Resized:
+          root.width = event.window.data1
+          root.height = event.window.data2
+          measure(root)
+          layoutWidgets(root)
+          canvas.resizeCanvas(root.width, root.height)
+          frameTexture = getOrCreateTexture(renderer, textureCache, canvas.w, canvas.h)
+          needsRedraw = true
 
-    renderer.setDrawColor 0, 0, 0, 255
-    renderer.clear
+        if not pollEvent(event):
+          break
 
-    if not frameTexture.isNil:
-      discard renderer.copy(frameTexture, nil, nil)
+    let currentTicks = getTicks()
+    if needsRedraw or currentTicks >= nextFrameTicks:
+      canvas.clear(rgba(0, 0, 0, 255))
+      renderWidgets(canvas, root, styleAST)
 
-    renderer.present
-    discard limitFrameRate(targetFramePeriod, frameTime)
+      if not frameTexture.isNil and canvas.pixels.len > 0:
+        discard updateTexture(
+          frameTexture,
+          nil,
+          cast[pointer](unsafeAddr(canvas.pixels[0])),
+          cint(canvas.w * sizeof(uint32))
+        )
+
+      renderer.setDrawColor 0, 0, 0, 255
+      renderer.clear
+
+      if not frameTexture.isNil:
+        discard renderer.copy(frameTexture, nil, nil)
+
+      renderer.present
+      needsRedraw = false
+      nextFrameTicks = currentTicks + targetFramePeriodMs
 
   destroyTextureCache(textureCache)
 

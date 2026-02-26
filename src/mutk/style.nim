@@ -1,5 +1,6 @@
 import strutils
 import sequtils
+import tables
 import render
 import widget
 
@@ -14,6 +15,25 @@ type
     ## instead let the style engine generate nodes.
     selector*: string
     properties*: seq[(string, string)]
+
+  ResolvedStyle = object
+    borderRadius: int
+    hasBgColor: bool
+    bgColor: uint32
+    hasGradient: bool
+    gradientStart: uint32
+    gradientEnd: uint32
+    borderWidth: int
+    borderColor: uint32
+    hasShadow: bool
+    shadowOffsetX: int
+    shadowOffsetY: int
+    shadowColor: uint32
+
+var resolvedStyleCache: Table[string, ResolvedStyle] = initTable[string, ResolvedStyle]()
+
+proc clearResolvedStyleCache*() =
+  resolvedStyleCache.clear()
 
 proc generateAST*(source: string): seq[CSSNode] =
   ## Parses a CSS string and generates an AST.
@@ -153,36 +173,36 @@ proc applyStyleNode*(
           shadow = @[offsets[0], offsets[1], colorToken]
           break
 
-proc cssRender*(canvas: var Canvas, widget: Widget, style: seq[CSSNode]): void =
-  let isHovered = hoveredWidget == widget
-  let isActive = activeWidget == widget
-  let baseSelector = widget.identifier
-  let hoverSelector = widget.identifier & ":hover"
-  let activeSelector = widget.identifier & ":active"
+proc defaultResolvedStyle(): ResolvedStyle =
+  result = ResolvedStyle(
+    borderRadius: 0,
+    hasBgColor: false,
+    bgColor: rgba(0, 0, 0, 0),
+    hasGradient: false,
+    gradientStart: rgba(0, 0, 0, 0),
+    gradientEnd: rgba(0, 0, 0, 0),
+    borderWidth: 0,
+    borderColor: rgba(0, 0, 0, 255),
+    hasShadow: false,
+    shadowOffsetX: 0,
+    shadowOffsetY: 0,
+    shadowColor: rgba(0, 0, 0, 0)
+  )
 
-  var borderRadius = 0
-  var hasBgColor = false
-  var bgColor = rgba(0, 0, 0, 0)
-  var hasGradient = false
-  var gradientStart = rgba(0, 0, 0, 0)
-  var gradientEnd = rgba(0, 0, 0, 0)
-  var borderWidth = 0
-  var borderColor = rgba(0, 0, 0, 255)
+proc applyStyleNodeToResolved(node: CSSNode, style: var ResolvedStyle) =
   var shadow: seq[string] = @[]
-
-  for node in style:
-    if node.selector == baseSelector:
-      applyStyleNode(node, borderRadius, hasBgColor, bgColor, hasGradient, gradientStart, gradientEnd, borderWidth, borderColor, shadow)
-
-  if isHovered:
-    for node in style:
-      if node.selector == hoverSelector:
-        applyStyleNode(node, borderRadius, hasBgColor, bgColor, hasGradient, gradientStart, gradientEnd, borderWidth, borderColor, shadow)
-
-  if isActive:
-    for node in style:
-      if node.selector == activeSelector:
-        applyStyleNode(node, borderRadius, hasBgColor, bgColor, hasGradient, gradientStart, gradientEnd, borderWidth, borderColor, shadow)
+  applyStyleNode(
+    node,
+    style.borderRadius,
+    style.hasBgColor,
+    style.bgColor,
+    style.hasGradient,
+    style.gradientStart,
+    style.gradientEnd,
+    style.borderWidth,
+    style.borderColor,
+    shadow
+  )
 
   if shadow.len >= 3:
     var offsetX = shadow[0].strip()
@@ -195,23 +215,59 @@ proc cssRender*(canvas: var Canvas, widget: Widget, style: seq[CSSNode]): void =
 
     if offsetX.len > 0 and offsetY.len > 0 and shadow[2].strip().startsWith("#"):
       let (r, g, b, a) = hexToSDLColor(shadow[2].strip())
-      canvas.fillRoundedRect(
-        widget.x + offsetX.parseInt(),
-        widget.y + offsetY.parseInt(),
-        widget.width,
-        widget.height,
-        borderRadius,
-        rgba(r, g, b, a)
-      )
+      style.hasShadow = true
+      style.shadowOffsetX = offsetX.parseInt()
+      style.shadowOffsetY = offsetY.parseInt()
+      style.shadowColor = rgba(r, g, b, a)
 
-  if hasBgColor:
-    if borderRadius > 0:
-      canvas.fillRoundedRect(widget.x, widget.y, widget.width, widget.height, borderRadius, bgColor)
+proc resolveStyle(baseSelector: string, isHovered: bool, isActive: bool, styleNodes: seq[CSSNode]): ResolvedStyle =
+  let cacheKey = baseSelector & "|h=" & $isHovered & "|a=" & $isActive
+  if resolvedStyleCache.hasKey(cacheKey):
+    return resolvedStyleCache[cacheKey]
+
+  result = defaultResolvedStyle()
+  let hoverSelector = baseSelector & ":hover"
+  let activeSelector = baseSelector & ":active"
+
+  for node in styleNodes:
+    if node.selector == baseSelector:
+      applyStyleNodeToResolved(node, result)
+
+  if isHovered:
+    for node in styleNodes:
+      if node.selector == hoverSelector:
+        applyStyleNodeToResolved(node, result)
+
+  if isActive:
+    for node in styleNodes:
+      if node.selector == activeSelector:
+        applyStyleNodeToResolved(node, result)
+
+  resolvedStyleCache[cacheKey] = result
+
+proc cssRender*(canvas: var Canvas, widget: Widget, style: seq[CSSNode]): void =
+  let isHovered = hoveredWidget == widget
+  let isActive = activeWidget == widget
+  let resolved = resolveStyle(widget.identifier, isHovered, isActive, style)
+
+  if resolved.hasShadow:
+    canvas.fillRoundedRect(
+      widget.x + resolved.shadowOffsetX,
+      widget.y + resolved.shadowOffsetY,
+      widget.width,
+      widget.height,
+      resolved.borderRadius,
+      resolved.shadowColor
+    )
+
+  if resolved.hasBgColor:
+    if resolved.borderRadius > 0:
+      canvas.fillRoundedRect(widget.x, widget.y, widget.width, widget.height, resolved.borderRadius, resolved.bgColor)
     else:
-      canvas.fillRect(widget.x, widget.y, widget.width, widget.height, bgColor)
+      canvas.fillRect(widget.x, widget.y, widget.width, widget.height, resolved.bgColor)
 
-  if hasGradient:
-    canvas.linearGradient(widget.x, widget.y, widget.width, widget.height, gradientStart, gradientEnd, borderRadius)
+  if resolved.hasGradient:
+    canvas.linearGradient(widget.x, widget.y, widget.width, widget.height, resolved.gradientStart, resolved.gradientEnd, resolved.borderRadius)
 
-  if borderWidth > 0:
-    canvas.drawRoundedBorder(widget.x, widget.y, widget.width, widget.height, borderRadius, borderWidth, borderColor)
+  if resolved.borderWidth > 0:
+    canvas.drawRoundedBorder(widget.x, widget.y, widget.width, widget.height, resolved.borderRadius, resolved.borderWidth, resolved.borderColor)
