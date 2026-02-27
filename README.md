@@ -14,6 +14,7 @@ Current widget set:
 * Button
 
 Planned widgets:
+* Label
 * TextBox
 * Slider
 * Dropdown
